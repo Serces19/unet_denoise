@@ -2,21 +2,27 @@
 
 ## 1. Configuración del Entorno
 
-Se recomienda usar `conda` para gestionar las dependencias del proyecto.
+Usa el archivo `conda.yaml` proporcionado para crear el entorno base con todas las dependencias necesarias para DINOv2.
 
 ```bash
 # 1. Clona el repositorio
 git clone <URL-DEL-REPOSITORIO>
 cd DeepCopycat
 
-# 2. Crea un nuevo entorno de Conda
-conda create --name deepcopycat python=3.9
+# 2. Crea el entorno de Conda desde el archivo
+# Esto instalará PyTorch 2.0, xFormers y otras librerías base.
+conda env create -f conda.yaml
 
 # 3. Activa el entorno
-conda activate deepcopycat
+conda activate dinov2
+```
 
-# 4. Instala las dependencias
-pip install -r requirements.txt
+Opcionalmente, si se van a realizar tareas densas como la segmentación semántica, puedes crear un entorno separado que incluya dependencias extra como `mmcv`.
+
+```bash
+# (Opcional) Crea un entorno separado con dependencias extra
+conda env create -f conda-extras.yaml
+conda activate dinov2-extras
 ```
 
 ## 2. Estructura del Proyecto
@@ -35,10 +41,11 @@ pip install -r requirements.txt
 │   ├── train.py         # Script de entrenamiento
 │   └── losses.py        # Funciones de pérdida personalizadas
 ├── .gitignore           # Archivos a ignorar por Git
+├── conda.yaml           # Fichero de entorno para Conda
+├── conda-extras.yaml    # Fichero de entorno con dependencias extra
 ├── INFRASTRUCTURE.md    # Diagrama de la arquitectura
 ├── MANUAL.md            # Este manual
 ├── README.md            # Descripción general del proyecto
-├── requirements.txt     # Dependencias de Python
 └── TASKS.md             # Plan de desarrollo y lista de tareas
 ```
 
