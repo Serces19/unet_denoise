@@ -140,7 +140,7 @@ cython_debug/
 .vscode/
 
 # Data, Models & Results
-data/
-models/
-results/
+#data/
+#models/
+#results/
 *.pth
