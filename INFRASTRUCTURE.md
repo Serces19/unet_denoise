@@ -28,7 +28,7 @@ graph TD
     end
 
     subgraph "Output"
-        I --> J[Saved Model (.pth)];
+        I --> J["Saved Model (.pth)"]
     end
     
     subgraph "Inference"
