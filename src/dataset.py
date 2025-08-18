@@ -30,8 +30,18 @@ class ColorizationDataset(Dataset):
 
         img_path = os.path.join(self.root_dir, self.image_files[idx])
         
-        # Cargar la imagen con OpenCV (en formato BGR)
-        bgr_image = cv2.imread(img_path)
+        # Cargar la imagen de forma robusta a caracteres especiales
+        with open(img_path, 'rb') as f:
+            img_bytes = f.read()
+        nparr = np.frombuffer(img_bytes, np.uint8)
+        bgr_image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+        # Asegurarse de que la imagen se cargó correctamente
+        if bgr_image is None:
+            print(f"ADVERTENCIA: No se pudo cargar la imagen: {img_path}")
+            # Devolver tensores vacíos o manejar el error como se prefiera
+            return torch.empty(3, 252, 252), torch.empty(3, 252, 252)
+
         # Convertir a RGB
         rgb_image = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2RGB)
 
@@ -52,22 +62,19 @@ class ColorizationDataset(Dataset):
 
         return input_image, target_image
 
+# --- Transformaciones Estándar ---
+dino_transform = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Resize((252, 252), antialias=True),
+    transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]) # Normaliza a [-1, 1]
+])
+
 # --- Bloque de prueba ---
 if __name__ == '__main__':
-    # 1. Definir las transformaciones que necesita el modelo
-    #    - Cambiar tamaño a 224x224 (requerido por DINOv2)
-    #    - Convertir a Tensor (pone los canales primero y normaliza a [0, 1])
-    #    - Normalizar con la media y desviación estándar que espera DINOv2 (o una estándar)
-    dino_transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Resize((224, 224), antialias=True),
-        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]) # Normaliza a [-1, 1]
-    ])
-
-    # 2. Crear un directorio y una imagen de prueba
+    # 1. Crear un directorio y una imagen de prueba
     print("Creando un directorio de datos de prueba: 'data/colorization_test'")
-    os.makedirs("data/colorization_test", exist_ok=True)
-    test_image_path = "data/colorization_test/test_img.png"
+    os.makedirs("../data/colorization_test", exist_ok=True)
+    test_image_path = "../data/colorization_test/test_img.png"
     
     # Crear una imagen de prueba simple (un cuadrado de color)
     dummy_image = np.zeros((256, 256, 3), dtype=np.uint8)
@@ -77,12 +84,12 @@ if __name__ == '__main__':
     cv2.imwrite(test_image_path, cv2.cvtColor(dummy_image, cv2.COLOR_RGB2BGR))
     print(f"Imagen de prueba guardada en: {test_image_path}")
 
-    # 3. Instanciar el Dataset
+    # 2. Instanciar el Dataset
     print("\nInstanciando el Dataset...")
-    color_dataset = ColorizationDataset(root_dir="data/colorization_test", transform=dino_transform)
+    color_dataset = ColorizationDataset(root_dir="../data/colorization_test", transform=dino_transform)
     print(f"Dataset encontrado con {len(color_dataset)} imagen(es).")
 
-    # 4. Obtener una muestra y verificar las dimensiones
+    # 3. Obtener una muestra y verificar las dimensiones
     if len(color_dataset) > 0:
         input_tensor, target_tensor = color_dataset[0]
         
@@ -94,7 +101,9 @@ if __name__ == '__main__':
         print(f"Valor máximo del tensor: {input_tensor.max():.2f}")
         
         # Comprobar que la normalización se aplicó
-        assert input_tensor.shape == (3, 224, 224), "La forma del tensor es incorrecta!"
-        assert target_tensor.shape == (3, 224, 224), "La forma del tensor es incorrecta!"
-        assert input_tensor.min() >= -1.0 and input_tensor.max() <= 1.0, "La normalización falló"
+        assert input_tensor.shape == (3, 252, 252), "La forma del tensor es incorrecta!"
+        assert target_tensor.shape == (3, 252, 252), "La forma del tensor es incorrecta!"
+        # Definimos una pequeña tolerancia para las comparaciones de punto flotante
+        epsilon = 1e-6
+        assert input_tensor.min() >= -1.0 - epsilon and input_tensor.max() <= 1.0 + epsilon, "La normalización falló"
         print("\n¡La verificación del dataset fue exitosa!")
