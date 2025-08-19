@@ -8,7 +8,7 @@ from tqdm import tqdm
 from torch.utils.data import Subset
 
 # Importamos nuestras clases personalizadas
-from model import SimpleCopyCat
+from model import CopycatUNet
 from dataset import ColorizationDataset, RedChannelDataset
 
 # --- CONFIGURACIÓN Y HIPERPARÁMETROS ---
@@ -93,7 +93,12 @@ def train_fn():
     print(f" -> {len(val_subset)} imágenes para validación.")
 
     # 3. INICIALIZAR MODELO, PÉRDIDA Y OPTIMIZADOR
-    model = SimpleCopyCat(n_out_channels=1, fine_tune_encoder=True).to(DEVICE)
+    model = CopycatUNet(n_out_channels=1, fine_tune_encoder=True).to(DEVICE)
+    model = CopycatUNet(
+                        n_out_channels=1,         # O 3, dependiendo de tu tarea
+                        encoder_name='dinov2',    # <-- Elige el encoder aquí
+                        fine_tune_encoder=True
+                        ).to(DEVICE)
     loss_fn = nn.L1Loss()
     optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE)
 

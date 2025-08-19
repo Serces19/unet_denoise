@@ -8,5 +8,3 @@ torchmetrics==0.10.3
 nvidia-cudnn-cu12==8.9.2.26
 fvcore
 iopath
-submitit @ git+https://github.com/facebookincubator/submitit
-

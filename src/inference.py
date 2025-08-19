@@ -37,7 +37,7 @@ def inference(args):
     # --- 1. Cargar el Modelo ---
     print("Cargando el modelo...")
     # Recrea la misma arquitectura que usaste para entrenar
-    model = SimpleCopyCat(n_out_channels=3, fine_tune_encoder=True)
+    model = SimpleCopyCat(n_out_channels=1, fine_tune_encoder=True)
     model.load_state_dict(torch.load(args.model_path, map_location=device))
     model.to(device)
     model.eval() # Poner el modelo en modo de evaluación (muy importante)
@@ -136,7 +136,5 @@ if __name__ == '__main__':
     parser.add_argument('--window_size', type=int, default=768, help='Tamaño de la ventana deslizante. ¡AJUSTAR SEGÚN TU VRAM!')
     parser.add_argument('--overlap', type=int, default=128, help='Número de píxeles de solapamiento entre ventanas.')
     parser.add_argument('--device', type=str, default='cuda', help='Dispositivo a usar para la inferencia (ej. "cuda", "cpu").')
-
     args = parser.parse_args()
-    
     inference(args)
