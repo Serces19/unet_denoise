@@ -123,83 +123,88 @@ if __name__ == '__main__':
         print("\n¡La verificación del dataset fue exitosa!")
 
 
+
 class RedChannelDataset(Dataset):
     """
     Dataset para la tarea de predecir el canal Rojo de una imagen.
-    - Entrada (Input): Imagen RGB completa.
-    - Objetivo (Target): El canal Rojo de la imagen, como una máscara de 1 canal.
-    
-    Maneja máscaras guardadas como archivos RGB (donde R=G=B) extrayendo un solo canal.
-    Aplica transformaciones geométricas (recorte, volteo) de forma idéntica a la entrada y al objetivo.
+    VERSIÓN ROBUSTA: Maneja inconsistencias en los nombres de archivo entre
+    las carpetas de RGB y máscaras.
     """
     def __init__(self, rgb_dir, mask_dir, crop_size, augment=False):
-        """
-        Args:
-            rgb_dir (string): Directorio con las imágenes de entrada (RGB).
-            mask_dir (string): Directorio con las imágenes objetivo (máscaras).
-            crop_size (int): El tamaño al que se recortarán las imágenes.
-            augment (bool): Si es True, aplica data augmentation (volteo horizontal).
-        """
         self.rgb_dir = rgb_dir
         self.mask_dir = mask_dir
         self.crop_size = crop_size
         self.augment = augment
         
-        self.rgb_files = sorted([f for f in os.listdir(rgb_dir) if os.path.isfile(os.path.join(rgb_dir, f))])
+        rgb_files = sorted([f for f in os.listdir(rgb_dir) if os.path.isfile(os.path.join(rgb_dir, f))])
+        mask_files = os.listdir(mask_dir)
+        
+        self.file_pairs = []
+        print("Construyendo pares de archivos RGB y Máscara...")
+
+        # Crear un set de los archivos de máscara para búsquedas rápidas (O(1) en promedio)
+        mask_set = set(mask_files)
+
+        for rgb_filename in rgb_files:
+            mask_filename = None
+            
+            # ####################################################################
+            # ## NUEVA LÓGICA DE EMPAREJAMIENTO INTELIGENTE                     ##
+            # ####################################################################
+            
+            # Posibilidad 1: La máscara tiene el MISMO nombre que el RGB
+            if rgb_filename in mask_set:
+                mask_filename = rgb_filename
+            else:
+                # Posibilidad 2: La máscara tiene "_mate_" y el RGB no.
+                # Ejemplo: RGB='sara_32.png' -> MASK='sara_mate_32.png'
+                # (Asumimos que el número va después de un guion bajo)
+                parts = os.path.splitext(rgb_filename)[0].split('_')
+                if len(parts) > 1:
+                    possible_mask_name = f"{parts[0]}_mate_{'_'.join(parts[1:])}.png"
+                    if possible_mask_name in mask_set:
+                        mask_filename = possible_mask_name
+
+            # ####################################################################
+            
+            if mask_filename:
+                self.file_pairs.append((rgb_filename, mask_filename))
+            else:
+                print(f"ADVERTENCIA: No se encontró una máscara para la imagen RGB: {rgb_filename}")
+        
+        print(f"Se encontraron {len(self.file_pairs)} pares de imágenes válidos.")
 
     def __len__(self):
-        return len(self.rgb_files)
+        return len(self.file_pairs)
 
     def __getitem__(self, idx):
-        # --- 1. Cargar la imagen de entrada y la máscara objetivo ---
-        rgb_filename = self.rgb_files[idx]
-        # Construir el nombre del archivo de la máscara a partir del RGB
-        # Ejemplo: 'sara_mate_0.png' -> 'sara_0.png'
-        mask_filename = rgb_filename.replace("_mate_", "_")
+        # Ahora simplemente obtenemos el par de nombres de archivo pre-verificado
+        rgb_filename, mask_filename = self.file_pairs[idx]
         
         rgb_path = os.path.join(self.rgb_dir, rgb_filename)
         mask_path = os.path.join(self.mask_dir, mask_filename)
 
         # Cargar con PIL
         rgb_image = Image.open(rgb_path).convert("RGB")
-        # Cargar la máscara, que aunque es RGB, la trataremos como escala de grises
         mask_image_rgb = Image.open(mask_path).convert("RGB")
         
-        # **Punto Clave:** Extraer un solo canal de la máscara. Como R=G=B, tomamos el primero (R).
-        # El resultado, `target_mask`, es ahora una imagen PIL de 1 solo canal (modo 'L').
         target_mask = mask_image_rgb.split()[0]
 
-
-        # --- 2. Aplicar Transformaciones Geométricas Sincronizadas ---
-        # Estas transformaciones deben ser idénticas para la imagen y la máscara para que sigan alineadas.
-
-        # Redimensionar (Resize)
-        # Usamos una interpolación de alta calidad para la imagen (BICUBIC) y la más simple
-        # para la máscara (NEAREST) para no crear valores intermedios.
+        # --- Transformaciones (el resto del código es igual) ---
         rgb_image = TF.resize(rgb_image, self.crop_size, interpolation=TF.InterpolationMode.BICUBIC)
         target_mask = TF.resize(target_mask, self.crop_size, interpolation=TF.InterpolationMode.NEAREST)
 
-        # Recorte (Crop)
-        # Obtenemos los parámetros del recorte una vez y los aplicamos a ambas imágenes.
         i, j, h, w = transforms.RandomCrop.get_params(rgb_image, output_size=(self.crop_size, self.crop_size))
         rgb_image = TF.crop(rgb_image, i, j, h, w)
         target_mask = TF.crop(target_mask, i, j, h, w)
 
-        # Volteo Horizontal Aleatorio (si está activado para data augmentation)
         if self.augment and random.random() > 0.5:
             rgb_image = TF.hflip(rgb_image)
             target_mask = TF.hflip(target_mask)
 
-        # --- 3. Transformaciones Finales (Individuales) ---
-
-        # Convertir a Tensor. Esto escala los valores de los píxeles al rango [0.0, 1.0]
-        # rgb_tensor tendrá forma [3, H, W]
-        # mask_tensor tendrá forma [1, H, W]
         rgb_tensor = TF.to_tensor(rgb_image)
         mask_tensor = TF.to_tensor(target_mask)
         
-        # Normalizar la imagen de entrada al rango [-1.0, 1.0]
-        # La máscara objetivo NO se normaliza.
         image_normalizer = transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
         rgb_tensor = image_normalizer(rgb_tensor)
 
