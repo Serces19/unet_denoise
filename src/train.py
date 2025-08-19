@@ -5,10 +5,11 @@ from torch.utils.data import DataLoader, random_split
 from torchvision import transforms
 import os
 from tqdm import tqdm
+from torch.utils.data import Subset
 
 # Importamos nuestras clases personalizadas
 from model import SimpleCopyCat
-from dataset import ColorizationDataset
+from dataset import ColorizationDataset, RedChannelDataset
 
 # --- CONFIGURACIÓN Y HIPERPARÁMETROS ---
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -21,7 +22,8 @@ CROP_SIZE = 224 # Tamaño estándar para muchos modelos de visión
 VAL_SPLIT = 0.15 # 15% de los datos para validación
 
 # Directorios
-DATA_DIR = "../data/colors" # Directorio único con todas las imágenes
+INPUT_DIR = "../data/mate/rgb"
+GT_DIR = "../data/mate/mask"
 MODEL_OUTPUT_DIR = "../models/"
 
 def train_fn():
@@ -47,40 +49,55 @@ def train_fn():
         transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
     ])
 
-    # 2. CARGADORES DE DATOS (CON DIVISIÓN PROGRAMÁTICA)
-    # Creamos un dataset para entrenamiento y otro para validación con sus respectivas transformaciones
-    train_full_dataset = ColorizationDataset(root_dir=DATA_DIR, transform=train_transform)
-    val_full_dataset = ColorizationDataset(root_dir=DATA_DIR, transform=val_transform)
-    
-    # Obtenemos los índices para hacer la división
-    # Es importante usar el mismo generador para que la división sea consistente
-    # y no haya solapamiento entre train y val
-    dataset_size = len(train_full_dataset)
-    indices = list(range(dataset_size))
-    split_point = int(VAL_SPLIT * dataset_size)
-    
-    # Barajamos los índices
-    torch.manual_seed(42) # Usamos una semilla para que la división sea reproducible
-    torch.cuda.manual_seed_all(42)
-    np.random.shuffle(indices)
+    # 2. CARGADORES DE DATOS (Lógica correcta para segmentación)
+    # Ya no definimos train_transform y val_transform aquí.
+    # Esa lógica ahora está encapsulada dentro de RedChannelDataset.
 
+    # 1. Obtenemos y barajamos los índices de los archivos PRIMERO.
+    #    Así decidimos qué imágenes van a entrenamiento y cuáles a validación
+    #    antes de crear cualquier objeto Dataset.
+    num_images = len(os.listdir(INPUT_DIR)) # Asumiendo que RGB_DIR está definido
+    indices = list(range(num_images))
+    split_point = int(VAL_SPLIT * num_images)
+
+    np.random.seed(42) # Usamos una semilla para que la división sea reproducible
+    np.random.shuffle(indices)
     train_indices, val_indices = indices[split_point:], indices[:split_point]
 
-    # Creamos los subconjuntos de datos
-    train_dataset = torch.utils.data.Subset(train_full_dataset, train_indices)
-    val_dataset = torch.utils.data.Subset(val_full_dataset, val_indices)
+    # 2. Creamos un Dataset de ENTRENAMIENTO configurado CON aumentación de datos.
+    train_dataset_instance = RedChannelDataset(
+        rgb_dir=INPUT_DIR, 
+        mask_dir=GT_DIR, 
+        crop_size=CROP_SIZE, 
+        augment=True  # <-- La aumentación está activada
+    )
+    # Creamos el subconjunto (Subset) usando solo los índices de entrenamiento.
+    train_subset = Subset(train_dataset_instance, train_indices)
 
-    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=2, pin_memory=True)
-    val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=2, pin_memory=True)
-    
-    print(f"Dataset completo con {dataset_size} imágenes.")
-    print(f" -> {len(train_dataset)} imágenes para entrenamiento.")
-    print(f" -> {len(val_dataset)} imágenes para validación.")
+    # 3. Creamos un Dataset de VALIDACIÓN configurado SIN aumentación de datos.
+    val_dataset_instance = RedChannelDataset(
+        rgb_dir=INPUT_DIR, 
+        mask_dir=GT_DIR, 
+        crop_size=CROP_SIZE, 
+        augment=False # <-- La aumentación está desactivada
+    )
+    # Creamos el subconjunto (Subset) usando solo los índices de validación.
+    val_subset = Subset(val_dataset_instance, val_indices)
+
+    # 4. Creamos los DataLoaders a partir de los Subsets.
+    train_loader = DataLoader(train_subset, batch_size=BATCH_SIZE, shuffle=True, num_workers=4, pin_memory=True)
+    val_loader = DataLoader(val_subset, batch_size=BATCH_SIZE, shuffle=False, num_workers=4, pin_memory=True)
+
+    print(f"Dataset completo con {num_images} imágenes.")
+    print(f" -> {len(train_subset)} imágenes para entrenamiento.")
+    print(f" -> {len(val_subset)} imágenes para validación.")
 
     # 3. INICIALIZAR MODELO, PÉRDIDA Y OPTIMIZADOR
-    model = SimpleCopyCat(n_out_channels=3, fine_tune_encoder=True).to(DEVICE)
+    model = SimpleCopyCat(n_out_channels=1, fine_tune_encoder=True).to(DEVICE)
     loss_fn = nn.L1Loss()
     optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE)
+
+
 
     # 4. BUCLE DE ENTRENAMIENTO
     best_val_loss = float('inf')

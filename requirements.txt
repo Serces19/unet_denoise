@@ -1,0 +1,12 @@
+torch==2.0.0
+torchvision==0.15.0
+tqdm
+opencv-python==4.11.0.86
+numpy==1.24.4
+omegaconf
+torchmetrics==0.10.3
+nvidia-cudnn-cu12==8.9.2.26
+fvcore
+iopath
+submitit @ git+https://github.com/facebookincubator/submitit
+
