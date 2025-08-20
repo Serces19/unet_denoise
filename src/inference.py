@@ -1,3 +1,5 @@
+# file: src/inference.py
+
 import torch
 import cv2
 import numpy as np
@@ -6,7 +8,7 @@ import argparse
 from tqdm import tqdm
 
 # Asegúrate de que model.py esté en la misma carpeta o en el path de Python
-from model import CopycatUNet # <-- Importamos la nueva clase de modelo unificada
+from model import CopycatUNet
 
 def generate_blending_mask(window_size, device):
     """Genera una máscara de mezcla piramidal para una ventana."""
@@ -24,27 +26,25 @@ def inference(args):
     print(f"Usando el dispositivo: {device}")
 
     # --- 1. Cargar el Modelo (de forma dinámica) ---
-    print(f"Cargando modelo con encoder '{args.encoder}' y {args.n_out_channels} canales de salida...")
+    print(f"Cargando modelo con encoder '{args.encoder}' (DINO Model: {args.dino_model_name if args.encoder == 'dinov2' else 'N/A'})...")
     
-    # Se construye la arquitectura correcta ANTES de cargar los pesos
+    # <-- MODIFICADO: Pasamos el nombre específico del modelo DINOv2
     model = CopycatUNet(
         n_out_channels=args.n_out_channels,
-        encoder_name=args.encoder
+        encoder_name=args.encoder,
+        dino_model_name=args.dino_model_name
     ).to(device)
     
-    # Cargamos el diccionario de checkpoint completo
     checkpoint = torch.load(args.model_path, map_location=device)
-    
-    # Extraemos y cargamos SOLAMENTE el state_dict del modelo
     model.load_state_dict(checkpoint['model_state_dict'])
-
+    
     model.eval()
     print("Modelo cargado exitosamente.")
 
     # --- 1.5 Ajuste Automático de Ventana para DINOv2 ---
     window_size = args.window_size
     if args.encoder == 'dinov2':
-        patch_size = 14 # Tamaño de parche de DINOv2
+        patch_size = 14
         if window_size % patch_size != 0:
             new_size = (window_size // patch_size) * patch_size
             if new_size == 0: new_size = patch_size
@@ -58,12 +58,10 @@ def inference(args):
     if bgr_image is None:
         raise FileNotFoundError(f"No se pudo cargar la imagen en: {args.input}")
 
-    # Convertir a RGB. Asumimos que la entrada para la tarea es RGB.
     rgb_image = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2RGB)
     H, W, _ = rgb_image.shape
     print(f"Dimensiones de la imagen: {W}x{H}")
 
-    # Normalizar la imagen RGB de [0, 255] a [-1, 1]
     input_tensor = torch.from_numpy(rgb_image.astype(np.float32)).permute(2, 0, 1)
     input_tensor = (input_tensor / 127.5) - 1.0
     input_tensor = input_tensor.to(device)
@@ -71,9 +69,8 @@ def inference(args):
     # --- 3. Inferencia con Ventana Deslizante ---
     print(f"Iniciando inferencia con ventana de {window_size}x{window_size} y solapamiento de {args.overlap}...")
     
-    # Los tensores de salida y pesos se adaptan al número de canales de salida
     output_image = torch.zeros(args.n_out_channels, H, W, device=device)
-    weight_map = torch.zeros(1, H, W, device=device) # El mapa de pesos siempre es de 1 canal
+    weight_map = torch.zeros(1, H, W, device=device)
     
     blending_mask = generate_blending_mask(window_size, device)
     stride = window_size - args.overlap
@@ -102,14 +99,10 @@ def inference(args):
     # --- 4. Post-procesar y Guardar la Imagen de Salida ---
     print("Post-procesando y guardando la imagen final...")
     
-    # La de-normalización depende de la tarea, asumimos que la salida es [-1, 1]
-    # Si tu máscara está en [0, 1], deberías quitar esta línea.
     final_image_tensor = (final_image_tensor * 0.5 + 0.5)
-    
     final_image_tensor = torch.clamp(final_image_tensor, 0, 1) * 255.0
     output_np = final_image_tensor.cpu().numpy().transpose(1, 2, 0).astype(np.uint8)
     
-    # Se convierte la salida a BGR para guardarla con OpenCV, sea de 1 o 3 canales
     if args.n_out_channels == 1:
         output_bgr = cv2.cvtColor(output_np, cv2.COLOR_GRAY2BGR)
     else:
@@ -121,7 +114,6 @@ def inference(args):
     cv2.imwrite(args.output, output_bgr)
     print(f"¡Proceso completado! Imagen guardada en: {args.output}")
 
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Script de inferencia flexible para modelos UNet (DINOv2 o Clásico).")
     
@@ -129,11 +121,12 @@ if __name__ == '__main__':
     parser.add_argument('--input', type=str, required=True, help='Ruta a la imagen de entrada RGB.')
     parser.add_argument('--output', type=str, default='output/result.png', help='Ruta para guardar la imagen de salida.')
     
-    # Argumentos clave para la flexibilidad
     parser.add_argument('--encoder', type=str, default='dinov2', choices=['dinov2', 'classic'], help='Tipo de encoder con el que se entrenó el modelo.')
-    parser.add_argument('--n_out_channels', type=int, default=1, help='Número de canales de salida del modelo (1 para máscaras/grises, 3 para color).')
+    
+    # <-- AÑADIDO: Argumento para seleccionar el modelo DINOv2
+    parser.add_argument('--dino_model_name', type=str, default='dinov2_vits14', help='Nombre específico del modelo DINOv2 a usar (ej. dinov2_vitb14).')
 
-    # Argumentos para la inferencia
+    parser.add_argument('--n_out_channels', type=int, default=1, help='Número de canales de salida del modelo (1 para máscaras/grises, 3 para color).')
     parser.add_argument('--window_size', type=int, default=756, help='Tamaño de la ventana deslizante. Se ajustará si usa DINOv2 y no es múltiplo de 14.')
     parser.add_argument('--overlap', type=int, default=128, help='Número de píxeles de solapamiento entre ventanas.')
     parser.add_argument('--device', type=str, default='cuda', help='Dispositivo a usar para la inferencia (ej. "cuda", "cpu").')

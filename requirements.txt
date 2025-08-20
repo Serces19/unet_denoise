@@ -9,3 +9,4 @@ nvidia-cudnn-cu12==8.9.2.26
 fvcore
 iopath
 tensorboard
+xformers
