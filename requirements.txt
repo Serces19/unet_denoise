@@ -10,3 +10,4 @@ fvcore
 iopath
 tensorboard
 xformers
+pytorch-msssim

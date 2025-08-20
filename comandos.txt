@@ -1,0 +1,74 @@
+python inference.py \
+    --model_path "/workspace/unet_denoise/models/best_model_classic.pth" \
+    --input "/workspace/unet_denoise/data/mate/rgb/sara_10.png" \
+    --output "/workspace/unet_denoise/outputs/matte_classic.png" \
+    --encoder classic \
+    --n_out_channels 1 \
+    --window_size 1078  # <-- Con la UNet clásica, no necesitas que sea múltiplo de 14
+
+
+
+
+python inference.py \
+    --model_path "/workspace/unet_denoise/models/best_model_dinov2_dinov2_vitb14.pth" \
+    --input "/workspace/unet_denoise/data/mate/rgb/sara_10.png" \
+    --output "/workspace/unet_denoise/outputs/matte_dinov2.png" \
+    --encoder dinov2 \
+    --dino_model_name dinov2_vitb14 \
+    --n_out_channels 1 \
+    --window_size 1078
+
+
+
+# Estando en la carpeta src/
+python train.py \
+    --encoder dinov2 \
+    --num_epochs 200 \
+    --resume_from ../models/best_model_dinov2.pth
+
+
+
+
+# Estando en la carpeta src/
+python train.py \
+    --run_name "deaging_classic_advanced_aug" \
+    --input_dir "../data/deaging/input" \
+    --gt_dir "../data/deaging/gt" \
+    --target_mode "RGB" \
+    --n_out_channels 3 \
+    --loss_fn "l1" \
+    --encoder "classic" \
+    --num_epochs 10000 \
+    --batch_size 8 \
+    --val_split 0.25 \
+    --advanced_augment  # <-- ¡Aquí activas toda la nueva magia!
+
+
+# Estando en la carpeta src/
+python inference.py \
+    --model_path "../models/best_model_deaging_classic_advanced_aug.pth" \
+    --input "/workspace/unet_denoise/data/deaging/input/deaging_003.png" \
+    --output "/workspace/unet_denoise/outputs/deaging_classic_advanced_aug.png" \
+    --encoder "classic" \
+    --n_out_channels 3 \
+    --window_size 420
+
+
+
+ # Estando en la carpeta src/
+python train.py \
+    --run_name "deaging_classic_all_losses" \
+    --input_dir "../data/deaging/input" \
+    --gt_dir "../data/deaging/gt" \
+    --target_mode "RGB" \
+    --n_out_channels 3 \
+    --loss_fn "hybrid" \
+    --w_l1 1.0 \
+    --w_perceptual 0.1 \
+    --w_laplacian 0.5 \
+    --w_ssim 0.25 \
+    --encoder "classic" \
+    --num_epochs 300 \
+    --batch_size 8 \
+    --val_split 0.25 \
+    --advanced_augment

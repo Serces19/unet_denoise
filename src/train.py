@@ -12,82 +12,70 @@ from pathlib import Path
 from datetime import datetime
 
 # Importamos nuestras clases personalizadas
-# Asumimos la estructura de carpetas: src/utils/logger.py
 from model import CopycatUNet
 from dataset import PairedImageDataset 
+from losses import HybridLoss
 from logger import Logger
+from visualize import save_batch_for_tensorboard
+
+
+##########################################################################################################
 
 def train_fn(args):
-    """Función principal de entrenamiento, ahora agnóstica a la tarea."""
+    """Función principal de entrenamiento, agnóstica a la tarea y con pérdida híbrida."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Usando el dispositivo: {device}")
     
     os.makedirs(args.model_output_dir, exist_ok=True)
     
-    # --- INICIALIZAR LOGGER con un nombre de ejecución único ---
+    # --- INICIALIZAR LOGGER ---
     run_timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
     run_full_name = f"{run_timestamp}_{args.run_name}_{args.encoder}"
     logger = Logger(base_log_dir="../runs", run_name=run_full_name)
     print(f"Nombre de la ejecución: {run_full_name}")
 
-    # --- 1. CARGADORES DE DATOS ---
+    # --- 1. CARGADORES DE DATOS (Lógica de validación opcional) ---
     print(f"Configurando dataset para la tarea: '{args.run_name}'...")
-    num_images = len(os.listdir(args.input_dir))
-    indices = list(range(num_images))
-    split_point = int(args.val_split * num_images)
-    np.random.seed(42)
-    np.random.shuffle(indices)
-    train_indices, val_indices = indices[split_point:], indices[:split_point]
-
-    # Usamos el PairedImageDataset genérico
-    train_dataset = PairedImageDataset(
-        input_dir=args.input_dir, 
-        gt_dir=args.gt_dir, 
-        crop_size=args.crop_size, 
-        augment=True,
-        advanced_augment=args.advanced_augment, # <-- AÑADIDO
-        target_mode=args.target_mode
-    )
-    train_subset = Subset(train_dataset, train_indices)
-    
-    val_dataset = PairedImageDataset(
-        input_dir=args.input_dir, 
-        gt_dir=args.gt_dir, 
-        crop_size=args.crop_size, 
-        augment=False,
-        advanced_augment=False, # <-- La aumentación avanzada NUNCA se aplica a la validación
-        target_mode=args.target_mode
-    )
-    val_subset = Subset(val_dataset, val_indices)
-    
-    train_loader = DataLoader(train_subset, batch_size=args.batch_size, shuffle=True, num_workers=4, pin_memory=True)
-    val_loader = DataLoader(val_subset, batch_size=args.batch_size, shuffle=False, num_workers=4, pin_memory=True)
-    print(f"Dataset completo con {num_images} imágenes.")
-    print(f" -> {len(train_subset)} para entrenamiento, {len(val_subset)} para validación.")
+    # ... (Esta sección de tu código ya estaba bien, la omito por brevedad pero no la cambies)
+    num_images = len(os.listdir(args.input_dir)); all_indices = list(range(num_images))
+    if args.val_split > 0:
+        split_point = int(args.val_split * num_images); np.random.seed(42); np.random.shuffle(all_indices)
+        train_indices, val_indices = all_indices[split_point:], all_indices[:split_point]
+        train_dataset = PairedImageDataset(input_dir=args.input_dir, gt_dir=args.gt_dir, crop_size=args.crop_size, augment=True, advanced_augment=args.advanced_augment, target_mode=args.target_mode)
+        train_subset = Subset(train_dataset, train_indices)
+        val_dataset = PairedImageDataset(input_dir=args.input_dir, gt_dir=args.gt_dir, crop_size=args.crop_size, augment=False, advanced_augment=False, target_mode=args.target_mode)
+        val_subset = Subset(val_dataset, val_indices)
+        train_loader = DataLoader(train_subset, batch_size=args.batch_size, shuffle=True, num_workers=4, pin_memory=True)
+        val_loader = DataLoader(val_subset, batch_size=args.batch_size, shuffle=False, num_workers=4, pin_memory=True)
+        print(f"Dataset: {num_images} imgs -> {len(train_subset)} train, {len(val_subset)} val.")
+    else:
+        print("ADVERTENCIA: No se usará validación. Entrenando con todos los datos."); train_dataset = PairedImageDataset(input_dir=args.input_dir, gt_dir=args.gt_dir, crop_size=args.crop_size, augment=True, advanced_augment=args.advanced_augment, target_mode=args.target_mode); train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=4, pin_memory=True); val_loader = None
+        print(f"Dataset: {num_images} imgs -> {len(train_dataset)} train, 0 val.")
 
     # --- 2. INICIALIZAR MODELO, PÉRDIDA Y OPTIMIZADOR ---
-    print(f"Inicializando modelo con encoder '{args.encoder}' y {args.n_out_channels} canales de salida...")
-    model = CopycatUNet(
-        n_out_channels=args.n_out_channels, 
-        encoder_name=args.encoder,
-        dino_model_name=args.dino_model_name
-    ).to(device)
+    print(f"Inicializando modelo con encoder '{args.encoder}' (DINO Model: {args.dino_model_name if args.encoder == 'dinov2' else 'N/A'})...")
+    model = CopycatUNet(n_out_channels=args.n_out_channels, encoder_name=args.encoder, dino_model_name=args.dino_model_name).to(device)
     
-    loss_fn = nn.BCEWithLogitsLoss() if args.loss_fn == 'bce' else nn.L1Loss()
+    # --- LÓGICA DE PÉRDIDA MODIFICADA ---
+    if args.loss_fn.lower() == 'hybrid':
+        loss_fn = HybridLoss(device=device, n_channels=args.n_out_channels, w_l1=args.w_l1, 
+                             w_perceptual=args.w_perceptual, w_laplacian=args.w_laplacian, w_ssim=args.w_ssim)
+    elif args.loss_fn.lower() == 'bce':
+        loss_fn = nn.BCEWithLogitsLoss()
+    else: # l1
+        loss_fn = nn.L1Loss()
     print(f"Usando pérdida: {args.loss_fn.upper()}")
+
     optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate)
     scaler = torch.amp.GradScaler(device_type=device.type, enabled=(device.type == 'cuda'))
 
     # --- LÓGICA PARA CARGAR UN CHECKPOINT ---
-    start_epoch = 0
-    best_val_loss = float('inf')
+    start_epoch = 0; best_val_loss = float('inf')
     if args.resume_from and os.path.isfile(args.resume_from):
         print(f"=> Reanudando entrenamiento desde el checkpoint: {args.resume_from}")
-        checkpoint = torch.load(args.resume_from, map_location=device)
-        model.load_state_dict(checkpoint['model_state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        start_epoch = checkpoint['epoch'] + 1
-        best_val_loss = checkpoint.get('loss', float('inf'))
+        checkpoint = torch.load(args.resume_from, map_location=device, weights_only=False)
+        model.load_state_dict(checkpoint['model_state_dict']); optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        start_epoch = checkpoint['epoch'] + 1; best_val_loss = checkpoint.get('loss', float('inf'))
         print(f"=> Checkpoint cargado. Se reanudará desde la época {start_epoch}")
     elif args.resume_from:
         print(f"ADVERTENCIA: No se encontró el checkpoint en '{args.resume_from}'. Empezando desde cero.")
@@ -96,7 +84,7 @@ def train_fn(args):
     print(f"\nIniciando entrenamiento desde la época {start_epoch}...")
     for epoch in range(start_epoch, args.num_epochs):
         model.train()
-        total_train_loss = 0.0
+        train_loss_components = {} # Diccionario para acumular las pérdidas
         train_loop = tqdm(train_loader, desc=f"Epoch [{epoch+1}/{args.num_epochs}] Train")
         
         for input_img, target_img in train_loop:
@@ -104,54 +92,87 @@ def train_fn(args):
             
             with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=(device.type == 'cuda')):
                 predicted_output = model(input_img)
-                loss = loss_fn(predicted_output, target_img)
+                loss_output = loss_fn(predicted_output, target_img)
 
-            optimizer.zero_grad()
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
-            total_train_loss += loss.item()
-            train_loop.set_postfix(loss=loss.item())
-        
-        avg_train_loss = total_train_loss / len(train_loader)
-        
-        # Bucle de Validación
-        model.eval()
-        total_val_loss = 0.0
-        with torch.no_grad():
-            for input_img, target_img in val_loader:
-                input_img, target_img = input_img.to(device), target_img.to(device)
-                with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=(device.type == 'cuda')):
-                    predicted_output = model(input_img)
-                    loss = loss_fn(predicted_output, target_img)
-                total_val_loss += loss.item()
-
-        avg_val_loss = total_val_loss / len(val_loader)
-        print(f"Epoch {epoch+1}: Train Loss = {avg_train_loss:.5f}, Val Loss = {avg_val_loss:.5f}")
-
-        logger.log_scalar('Loss/train', avg_train_loss, epoch + 1)
-        logger.log_scalar('Loss/val', avg_val_loss, epoch + 1)
-
-        # GUARDAR EL MEJOR MODELO
-        if avg_val_loss < best_val_loss:
-            best_val_loss = avg_val_loss
-            model_save_path = os.path.join(args.model_output_dir, f"best_model_{args.run_name}.pth")
-            print(f"  -> Nueva mejor pérdida. Guardando checkpoint en {model_save_path}")
+            # --- MANEJO DE PÉRDIDA MODIFICADO ---
+            if isinstance(loss_output, dict):
+                loss = loss_output['total']
+                for key, value in loss_output.items():
+                    if key not in train_loss_components: train_loss_components[key] = 0.0
+                    train_loss_components[key] += value.item()
+                train_loop.set_postfix({k: v.item() for k, v in loss_output.items()})
+            else: # Para BCE o L1 simple
+                loss = loss_output
+                if 'total' not in train_loss_components: train_loss_components['total'] = 0.0
+                train_loss_components['total'] += loss.item()
+                train_loop.set_postfix(loss=loss.item())
             
-            checkpoint = {
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'loss': best_val_loss,
-                'args': args
-            }
-            torch.save(checkpoint, model_save_path)
+            optimizer.zero_grad(); scaler.scale(loss).backward(); scaler.step(optimizer); scaler.update()
 
+        # --- LOGGING DE ENTRENAMIENTO MODIFICADO ---
+        print(f"Epoch {epoch+1} Train Loss:", end=" ")
+        for key, value in train_loss_components.items():
+            avg_loss = value / len(train_loader)
+            logger.log_scalar(f'Loss-Train/{key}', avg_loss, epoch + 1)
+            print(f"{key}={avg_loss:.5f}", end=" | ")
+        
+        # --- BUCLE DE VALIDACIÓN Y GUARDADO ---
+        if val_loader is not None:
+            model.eval()
+            val_loss_components = {}
+            with torch.no_grad():
+                for input_img, target_img in val_loader:
+                    input_img, target_img = input_img.to(device), target_img.to(device)
+                    with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=(device.type == 'cuda')):
+                        predicted_output = model(input_img)
+                        loss_output = loss_fn(predicted_output, target_img)
+
+                    if isinstance(loss_output, dict):
+                        for key, value in loss_output.items():
+                            if key not in val_loss_components: val_loss_components[key] = 0.0
+                            val_loss_components[key] += value.item()
+                    else:
+                        if 'total' not in val_loss_components: val_loss_components['total'] = 0.0
+                        val_loss_components['total'] += loss_output.item()
+
+            print(f"Val Loss:", end=" ")
+            for key, value in val_loss_components.items():
+                avg_loss = value / len(val_loader)
+                logger.log_scalar(f'Loss-Val/{key}', avg_loss, epoch + 1)
+                print(f"{key}={avg_loss:.5f}", end=" | ")
+            print() # Salto de línea
+
+            avg_val_loss = val_loss_components['total'] / len(val_loader)
+
+            if epoch == 0 or (epoch + 1) % 10 == 0:
+                with torch.no_grad():
+                    predicted_output_for_viz = model(input_img)
+                save_batch_for_tensorboard(input_img, target_img, predicted_output_for_viz, logger, epoch + 1)
+
+            if avg_val_loss < best_val_loss:
+                best_val_loss = avg_val_loss
+                model_save_path = os.path.join(args.model_output_dir, f"best_model_{args.run_name}.pth")
+                print(f"  -> Nueva mejor pérdida de validación. Guardando checkpoint en {model_save_path}")
+                checkpoint = {'epoch': epoch, 'model_state_dict': model.state_dict(), 'optimizer_state_dict': optimizer.state_dict(), 'loss': best_val_loss, 'args': vars(args)}
+                torch.save(checkpoint, model_save_path)
+        else:
+             print() # Salto de línea si no hay validación
+    
+    # --- Guardado final y cierre ---
+    if val_loader is None:
+        model_save_path = os.path.join(args.model_output_dir, f"final_model_epoch_{args.num_epochs}_{args.run_name}.pth")
+        print(f"\nEntrenamiento sin validación finalizado. Guardando modelo final en {model_save_path}")
+        checkpoint = {'epoch': args.num_epochs - 1, 'model_state_dict': model.state_dict(), 'optimizer_state_dict': optimizer.state_dict(), 'loss': -1, 'args': vars(args)}
+        torch.save(checkpoint, model_save_path)
+    
     hparams = {k: v for k, v in vars(args).items() if isinstance(v, (str, int, float))}
-    metrics = {'best_validation_loss': best_val_loss}
+    metrics = {'best_validation_loss': best_val_loss if val_loader is not None else -1}
     logger.log_hparams(hparams, metrics)
     logger.close()
     print("\nEntrenamiento finalizado.")
+
+
+########################################################################################################################
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Framework de entrenamiento flexible para tareas de Imagen-a-Imagen.")
@@ -166,12 +187,20 @@ if __name__ == "__main__":
     # --- Argumentos de Arquitectura y Entrenamiento ---
     parser.add_argument('--encoder', type=str, default='classic', choices=['dinov2', 'classic'])
     parser.add_argument('--dino_model_name', type=str, default='dinov2_vits14', help='Modelo DINOv2 a usar.')
-    parser.add_argument('--loss_fn', type=str, default='l1', choices=['bce', 'l1'])
+    parser.add_argument('--loss_fn', type=str, default='hybrid', choices=['bce', 'l1', 'hybrid'], help='Función de pérdida.')
+
+    # --- Argumentos para la PÉRDIDA HÍBRIDA ---
+    parser.add_argument('--w_l1', type=float, default=1.0, help='Peso para la pérdida L1.')
+    parser.add_argument('--w_perceptual', type=float, default=0.1, help='Peso para la pérdida perceptual.')
+    parser.add_argument('--w_laplacian', type=float, default=0.5, help='Peso para la pérdida Laplaciana.')
+    parser.add_argument('--w_ssim', type=float, default=0.25, help='Peso para la pérdida SSIM.')
+
+    # -------------------------
     parser.add_argument('--num_epochs', type=int, default=100)
     parser.add_argument('--batch_size', type=int, default=8)
     parser.add_argument('--learning_rate', type=float, default=1e-4)
     parser.add_argument('--crop_size', type=int, default=392)
-    parser.add_argument('--val_split', type=float, default=0.15)
+    parser.add_argument('--val_split', type=float, default=0.15, help='Porcentaje de datos para validación. Poner a 0 para desactivar.')
     parser.add_argument('--resume_from', type=str, default=None, help='Ruta al checkpoint para reanudar.')
     parser.add_argument('--advanced_augment', action='store_true', help='Activa un set de aumentaciones de datos más agresivas.')
     parser.add_argument('--model_output_dir', type=str, default=str(Path(__file__).resolve().parent.parent / "models"))

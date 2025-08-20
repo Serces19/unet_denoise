@@ -35,7 +35,7 @@ def inference(args):
         dino_model_name=args.dino_model_name
     ).to(device)
     
-    checkpoint = torch.load(args.model_path, map_location=device)
+    checkpoint = torch.load(args.model_path, map_location=device, weights_only=False)
     model.load_state_dict(checkpoint['model_state_dict'])
     
     model.eval()
