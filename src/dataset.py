@@ -1,211 +1,116 @@
-import os
-import cv2
-import numpy as np
-import torch
-from torch.utils.data import Dataset
-from torchvision import transforms
-import os
-from PIL import Image
-import torch
-from torch.utils.data import Dataset
-from torchvision import transforms
-import torchvision.transforms.functional as TF
-import random
-import os
-from PIL import Image
-import torch
-from torch.utils.data import Dataset
-from torchvision import transforms
-import torchvision.transforms.functional as TF
-import random
+# file: src/dataset.py
 
-class ColorizationDataset(Dataset):
+import os
+from PIL import Image, ImageFilter
+import torch
+from torch.utils.data import Dataset
+from torchvision import transforms
+import torchvision.transforms.functional as TF
+import random
+import numpy as np
+
+class PairedImageDataset(Dataset):
     """
-    Dataset para la tarea de colorización.
-    Carga imágenes de un directorio, las convierte a escala de grises para la entrada
-    y mantiene la versión a color como el objetivo.
+    Dataset genérico y flexible para tareas de traducción de imagen a imagen.
+    VERSIÓN MEJORADA con aumentaciones avanzadas opcionales.
     """
-    def __init__(self, root_dir, transform=None):
+    def __init__(self, input_dir, gt_dir, crop_size, augment=False, 
+                 advanced_augment=False, target_mode='RGB'):
         """
         Args:
-            root_dir (string): Directorio con todas las imágenes.
-            transform (callable, optional): Transformaciones opcionales a aplicar.
+            advanced_augment (bool): Si es True, aplica aumentaciones más agresivas.
         """
-        self.root_dir = root_dir
-        self.image_files = [f for f in os.listdir(root_dir) if os.path.isfile(os.path.join(root_dir, f))]
-        self.transform = transform
-
-    def __len__(self):
-        return len(self.image_files)
-
-    def __getitem__(self, idx):
-        if torch.is_tensor(idx):
-            idx = idx.tolist()
-
-        img_path = os.path.join(self.root_dir, self.image_files[idx])
-        
-        # Cargar la imagen de forma robusta a caracteres especiales
-        with open(img_path, 'rb') as f:
-            img_bytes = f.read()
-        nparr = np.frombuffer(img_bytes, np.uint8)
-        bgr_image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-
-        # Asegurarse de que la imagen se cargó correctamente
-        if bgr_image is None:
-            print(f"ADVERTENCIA: No se pudo cargar la imagen: {img_path}")
-            # Devolver tensores vacíos o manejar el error como se prefiera
-            return torch.empty(3, 252, 252), torch.empty(3, 252, 252)
-
-        # Convertir a RGB
-        rgb_image = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2RGB)
-
-        # --- Crear Input y Target ---
-        
-        # Target: La imagen a color original
-        target_image = rgb_image
-
-        # Input: La imagen en escala de grises
-        gray_image = cv2.cvtColor(rgb_image, cv2.COLOR_RGB2GRAY)
-        # Replicar el canal gris 3 veces para que DINOv2 la acepte (espera 3 canales)
-        input_image = np.stack([gray_image]*3, axis=-1)
-
-        # Aplicar transformaciones si existen
-        if self.transform:
-            input_image = self.transform(input_image)
-            target_image = self.transform(target_image)
-
-        return input_image, target_image
-
-# --- Transformaciones Estándar ---
-dino_transform = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Resize((252, 252), antialias=True),
-    transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]) # Normaliza a [-1, 1]
-])
-
-# --- Bloque de prueba ---
-if __name__ == '__main__':
-    # 1. Crear un directorio y una imagen de prueba
-    print("Creando un directorio de datos de prueba: 'data/colorization_test'")
-    os.makedirs("../data/colorization_test", exist_ok=True)
-    test_image_path = "../data/colorization_test/test_img.png"
-    
-    # Crear una imagen de prueba simple (un cuadrado de color)
-    dummy_image = np.zeros((256, 256, 3), dtype=np.uint8)
-    dummy_image[50:200, 50:200, 0] = 255 # Canal Rojo
-    dummy_image[100:150, 100:150, 1] = 255 # Canal Verde
-    dummy_image[125:175, 125:175, 2] = 255 # Canal Azul
-    cv2.imwrite(test_image_path, cv2.cvtColor(dummy_image, cv2.COLOR_RGB2BGR))
-    print(f"Imagen de prueba guardada en: {test_image_path}")
-
-    # 2. Instanciar el Dataset
-    print("\nInstanciando el Dataset...")
-    color_dataset = ColorizationDataset(root_dir="../data/colorization_test", transform=dino_transform)
-    print(f"Dataset encontrado con {len(color_dataset)} imagen(es).")
-
-    # 3. Obtener una muestra y verificar las dimensiones
-    if len(color_dataset) > 0:
-        input_tensor, target_tensor = color_dataset[0]
-        
-        print("\n--- Verificación de la Muestra ---")
-        print(f"Forma del tensor de entrada (gris, 3ch): {input_tensor.shape}")
-        print(f"Forma del tensor objetivo (color):      {target_tensor.shape}")
-        print(f"Tipo de dato de los tensores: {input_tensor.dtype}")
-        print(f"Valor mínimo del tensor: {input_tensor.min():.2f}")
-        print(f"Valor máximo del tensor: {input_tensor.max():.2f}")
-        
-        # Comprobar que la normalización se aplicó
-        assert input_tensor.shape == (3, 252, 252), "La forma del tensor es incorrecta!"
-        assert target_tensor.shape == (3, 252, 252), "La forma del tensor es incorrecta!"
-        # Definimos una pequeña tolerancia para las comparaciones de punto flotante
-        epsilon = 1e-6
-        assert input_tensor.min() >= -1.0 - epsilon and input_tensor.max() <= 1.0 + epsilon, "La normalización falló"
-        print("\n¡La verificación del dataset fue exitosa!")
-
-
-
-class RedChannelDataset(Dataset):
-    """
-    Dataset para la tarea de predecir el canal Rojo de una imagen.
-    VERSIÓN ROBUSTA: Maneja inconsistencias en los nombres de archivo entre
-    las carpetas de RGB y máscaras.
-    """
-    def __init__(self, rgb_dir, mask_dir, crop_size, augment=False):
-        self.rgb_dir = rgb_dir
-        self.mask_dir = mask_dir
+        self.input_dir = input_dir
+        self.gt_dir = gt_dir
         self.crop_size = crop_size
         self.augment = augment
+        self.advanced_augment = advanced_augment # <-- Nuevo parámetro
+        self.target_mode = target_mode
         
-        rgb_files = sorted([f for f in os.listdir(rgb_dir) if os.path.isfile(os.path.join(rgb_dir, f))])
-        mask_files = os.listdir(mask_dir)
+        self.input_files = sorted([f for f in os.listdir(input_dir) if os.path.isfile(os.path.join(input_dir, f))])
         
-        self.file_pairs = []
-        print("Construyendo pares de archivos RGB y Máscara...")
-
-        # Crear un set de los archivos de máscara para búsquedas rápidas (O(1) en promedio)
-        mask_set = set(mask_files)
-
-        for rgb_filename in rgb_files:
-            mask_filename = None
-            
-            # ####################################################################
-            # ## NUEVA LÓGICA DE EMPAREJAMIENTO INTELIGENTE                     ##
-            # ####################################################################
-            
-            # Posibilidad 1: La máscara tiene el MISMO nombre que el RGB
-            if rgb_filename in mask_set:
-                mask_filename = rgb_filename
-            else:
-                # Posibilidad 2: La máscara tiene "_mate_" y el RGB no.
-                # Ejemplo: RGB='sara_32.png' -> MASK='sara_mate_32.png'
-                # (Asumimos que el número va después de un guion bajo)
-                parts = os.path.splitext(rgb_filename)[0].split('_')
-                if len(parts) > 1:
-                    possible_mask_name = f"{parts[0]}_mate_{'_'.join(parts[1:])}.png"
-                    if possible_mask_name in mask_set:
-                        mask_filename = possible_mask_name
-
-            # ####################################################################
-            
-            if mask_filename:
-                self.file_pairs.append((rgb_filename, mask_filename))
-            else:
-                print(f"ADVERTENCIA: No se encontró una máscara para la imagen RGB: {rgb_filename}")
-        
-        print(f"Se encontraron {len(self.file_pairs)} pares de imágenes válidos.")
+        print(f"Dataset creado. Modo de objetivo: {target_mode}. Aumentación básica: {augment}. Aumentación avanzada: {advanced_augment}.")
+        print(f"Se encontraron {len(self.input_files)} imágenes de entrada en: {input_dir}")
 
     def __len__(self):
-        return len(self.file_pairs)
+        return len(self.input_files)
 
     def __getitem__(self, idx):
-        # Ahora simplemente obtenemos el par de nombres de archivo pre-verificado
-        rgb_filename, mask_filename = self.file_pairs[idx]
+        filename = self.input_files[idx]
+        input_path = os.path.join(self.input_dir, filename)
+        gt_path = os.path.join(self.gt_dir, filename)
+
+        try:
+            input_image = Image.open(input_path).convert("RGB")
+            gt_image = Image.open(gt_path).convert(self.target_mode)
+        except FileNotFoundError:
+            # ... (código de manejo de errores sin cambios)
+            return torch.empty(3, self.crop_size, self.crop_size), torch.empty(3 if self.target_mode == 'RGB' else 1, self.crop_size, self.crop_size)
+
+        # --- APLICAR TRANSFORMACIONES ---
         
-        rgb_path = os.path.join(self.rgb_dir, rgb_filename)
-        mask_path = os.path.join(self.mask_dir, mask_filename)
+        # 1. Aumentaciones geométricas (aplicadas a ambos, input y gt)
+        if self.augment:
+            # Volteo horizontal básico
+            if random.random() > 0.5:
+                input_image = TF.hflip(input_image)
+                gt_image = TF.hflip(gt_image)
 
-        # Cargar con PIL
-        rgb_image = Image.open(rgb_path).convert("RGB")
-        mask_image_rgb = Image.open(mask_path).convert("RGB")
+            # Aumentaciones geométricas avanzadas (opcionales)
+            if self.advanced_augment:
+                # Rotación aleatoria
+                angle = transforms.RandomRotation.get_params([-10, 10])
+                input_image = TF.rotate(input_image, angle, interpolation=TF.InterpolationMode.BICUBIC)
+                gt_image = TF.rotate(gt_image, angle, interpolation=TF.InterpolationMode.BICUBIC)
         
-        target_mask = mask_image_rgb.split()[0]
+        # 2. Redimensionar y Recortar (Zoom)
+        # RandomResizedCrop es una forma potente de hacer zoom y recortar a la vez.
+        # Si no hay aumentación, se comporta como un Resize + CenterCrop.
+        if self.augment and self.advanced_augment:
+            # Zoom aleatorio entre 80% y 100%
+            i, j, h, w = transforms.RandomResizedCrop.get_params(
+                input_image, scale=(0.8, 1.0), ratio=(0.95, 1.05)
+            )
+            input_image = TF.resized_crop(input_image, i, j, h, w, [self.crop_size, self.crop_size], interpolation=TF.InterpolationMode.BICUBIC)
+            gt_image = TF.resized_crop(gt_image, i, j, h, w, [self.crop_size, self.crop_size], interpolation=TF.InterpolationMode.BICUBIC)
+        else:
+            # Comportamiento estándar: redimensionar y recortar el centro
+            input_image = TF.resize(input_image, self.crop_size, interpolation=TF.InterpolationMode.BICUBIC)
+            gt_image = TF.resize(gt_image, self.crop_size, interpolation=TF.InterpolationMode.BICUBIC)
+            input_image = TF.center_crop(input_image, [self.crop_size, self.crop_size])
+            gt_image = TF.center_crop(gt_image, [self.crop_size, self.crop_size])
 
-        # --- Transformaciones (el resto del código es igual) ---
-        rgb_image = TF.resize(rgb_image, self.crop_size, interpolation=TF.InterpolationMode.BICUBIC)
-        target_mask = TF.resize(target_mask, self.crop_size, interpolation=TF.InterpolationMode.NEAREST)
 
-        i, j, h, w = transforms.RandomCrop.get_params(rgb_image, output_size=(self.crop_size, self.crop_size))
-        rgb_image = TF.crop(rgb_image, i, j, h, w)
-        target_mask = TF.crop(target_mask, i, j, h, w)
+        # 3. Aumentaciones fotométricas (solo aplicadas al INPUT)
+        if self.augment and self.advanced_augment:
+            # "Grade" - Ajustes de color
+            input_image = transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.1)(input_image)
+            # "Defocus" - Desenfoque Gaussiano
+            if random.random() > 0.5:
+                 input_image = input_image.filter(ImageFilter.GaussianBlur(radius=random.uniform(0.1, 1.5)))
+            
+                # "Occlusion" - Borrado aleatorio
+            random_erasing = transforms.RandomErasing(
+                p=0.22, scale=(0.02, 0.2), ratio=(0.3, 3.3), value='random', inplace=False
+            )
+            input_image = transforms.ToTensor()(input_image)  # RandomErasing espera tensor
+            input_image = random_erasing(input_image)
+            input_image = transforms.ToPILImage()(input_image)  # Convertir de nuevo si lo necesitas
 
-        if self.augment and random.random() > 0.5:
-            rgb_image = TF.hflip(rgb_image)
-            target_mask = TF.hflip(target_mask)
 
-        rgb_tensor = TF.to_tensor(rgb_image)
-        mask_tensor = TF.to_tensor(target_mask)
+        # 4. Conversión a Tensor y Normalización
+        input_tensor = TF.to_tensor(input_image)
+        target_tensor = TF.to_tensor(gt_image)
         
-        image_normalizer = transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
-        rgb_tensor = image_normalizer(rgb_tensor)
+        # "Ruido" - Añadido al tensor de entrada
+        if self.augment and self.advanced_augment:
+            noise = torch.randn_like(input_tensor) * 0.05 # Ruido gaussiano pequeño
+            input_tensor = torch.clamp(input_tensor + noise, 0, 1)
 
-        return rgb_tensor, mask_tensor
+        normalizer = transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
+        input_tensor = normalizer(input_tensor)
+        
+        if self.target_mode == 'RGB':
+            target_tensor = normalizer(target_tensor)
+
+        return input_tensor, target_tensor
