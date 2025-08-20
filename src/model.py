@@ -100,9 +100,10 @@ class CopycatUNet(nn.Module):
         
         # --- 1. Selección del Encoder ---
         if encoder_name.lower() == 'dinov2':
-            # Para dinov2_vits14, todas las 4 capas de salida tienen 384 canales
-            self.encoder = DinoV2Encoder(model_name='dinov2_vits14', fine_tune=fine_tune_encoder, n_layers=4)
-            encoder_channels = [384, 384, 384, 384]
+            # Para dinov2_vitb14, todas las 4 capas de salida tienen 768 canales
+            self.encoder = DinoV2Encoder(model_name='dinov2_vitb14', fine_tune=fine_tune_encoder, n_layers=4)
+            encoder_channels=[768, 384, 192, 96]
+
         elif encoder_name.lower() == 'classic':
             self.encoder = UNetEncoder(n_channels=3)
             # Los canales de salida del encoder clásico
@@ -160,7 +161,7 @@ class CopycatUNet(nn.Module):
 # --- Bloque de Pruebas ---
 if __name__ == '__main__':
     # Asegúrate de que el tamaño de entrada sea un múltiplo del tamaño de parche de DINOv2 (14)
-    input_tensor = torch.randn(2, 3, 224, 224) 
+    input_tensor = torch.randn(2, 3, 224, 224)
     
     print("--- Probando la UNet con Encoder DINOv2 ---")
     model_dino = CopycatUNet(n_out_channels=3, encoder_name='dinov2')

@@ -32,7 +32,12 @@ def inference(args):
         encoder_name=args.encoder
     ).to(device)
     
-    model.load_state_dict(torch.load(args.model_path, map_location=device))
+    # Cargamos el diccionario de checkpoint completo
+    checkpoint = torch.load(args.model_path, map_location=device)
+    
+    # Extraemos y cargamos SOLAMENTE el state_dict del modelo
+    model.load_state_dict(checkpoint['model_state_dict'])
+
     model.eval()
     print("Modelo cargado exitosamente.")
 
