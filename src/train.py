@@ -66,7 +66,7 @@ def train_fn(args):
     print(f"Usando pérdida: {args.loss_fn.upper()}")
 
     optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate)
-    scaler = torch.amp.GradScaler(device_type=device.type, enabled=(device.type == 'cuda'))
+    scaler = torch.cuda.amp.GradScaler(enabled=(device.type == 'cuda'))
     scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.2, patience=10, verbose=True)
 
     # --- LÓGICA PARA CARGAR UN CHECKPOINT ---
