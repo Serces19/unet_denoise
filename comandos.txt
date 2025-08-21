@@ -124,7 +124,7 @@ python train.py \
     --crop_size 518 \
     --viz_epochs 100 \
     --scheduler_patience 3 \
-    --scheduler_factor 0.5 \
+    --scheduler_factor 0.8 \
     --advanced_augment
 
 
