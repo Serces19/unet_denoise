@@ -35,7 +35,7 @@ class PerceptualLoss(nn.Module):
 
 class LaplacianPyramidLoss(nn.Module):
     """Calcula la pérdida de la pirámide laplaciana para preservar bordes nítidos."""
-    def __init__(self, max_levels=3, channels=3, device='cuda'):
+    def __init__(self, max_levels=5, channels=3, device='cuda'):
         super(LaplacianPyramidLoss, self).__init__()
         self.max_levels = max_levels
         self.loss_fn = nn.L1Loss()

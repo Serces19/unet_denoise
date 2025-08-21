@@ -67,7 +67,7 @@ def train_fn(args):
 
     optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate)
     scaler = torch.cuda.amp.GradScaler(enabled=(device.type == 'cuda'))
-    scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.2, patience=10, verbose=True)
+    scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=args.scheduler_factor, patience=args.scheduler_patience, verbose=True)
 
     # --- LÓGICA PARA CARGAR UN CHECKPOINT ---
     start_epoch = 0; best_val_loss = float('inf')
@@ -168,11 +168,15 @@ if __name__ == "__main__":
     parser.add_argument('--w_l1', type=float, default=1.0); parser.add_argument('--w_perceptual', type=float, default=0.1)
     parser.add_argument('--w_laplacian', type=float, default=0.5); parser.add_argument('--w_ssim', type=float, default=0.25)
 
+    # --- AÑADE ESTOS DOS ARGUMENTOS ---
+    parser.add_argument('--scheduler_patience', type=int, default=8, help='Paciencia para el scheduler ReduceLROnPlateau.')
+    parser.add_argument('--scheduler_factor', type=float, default=0.4, help='Factor de reducción de LR para ReduceLROnPlateau.')
+
     parser.add_argument('--num_epochs', type=int, default=100); parser.add_argument('--batch_size', type=int, default=8)
     parser.add_argument('--learning_rate', type=float, default=1e-4); parser.add_argument('--crop_size', type=int, default=392)
     parser.add_argument('--val_split', type=float, default=0.15, help='Poner a 0 para desactivar validación.')
     parser.add_argument('--resume_from', type=str, default=None); parser.add_argument('--advanced_augment', action='store_true')
-    parser.add_argument('--viz_epochs', type=int, default=10, help='Frecuencia para guardar imágenes en TensorBoard.')
+    parser.add_argument('--viz_epochs', type=int, default=100, help='Frecuencia para guardar imágenes en TensorBoard.')
     parser.add_argument('--model_output_dir', type=str, default=str(Path(__file__).resolve().parent.parent / "models"))
     
     args = parser.parse_args()
