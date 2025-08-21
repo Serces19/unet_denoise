@@ -34,10 +34,13 @@ def train_fn(args):
     logger = Logger(base_log_dir="../runs", run_name=run_full_name)
     print(f"Nombre de la ejecución: {run_full_name}")
 
+    image_files = [f for f in os.listdir(args.input_dir) if os.path.isfile(os.path.join(args.input_dir, f))]
+    num_images = len(image_files)
+    all_indices = list(range(num_images))
+
     # --- 1. CARGADORES DE DATOS (Lógica de validación opcional) ---
     print(f"Configurando dataset para la tarea: '{args.run_name}'...")
-    # ... (Esta sección de tu código ya estaba bien, la omito por brevedad pero no la cambies)
-    num_images = len(os.listdir(args.input_dir)); all_indices = list(range(num_images))
+
     if args.val_split > 0:
         split_point = int(args.val_split * num_images); np.random.seed(42); np.random.shuffle(all_indices)
         train_indices, val_indices = all_indices[split_point:], all_indices[:split_point]
@@ -67,7 +70,7 @@ def train_fn(args):
     print(f"Usando pérdida: {args.loss_fn.upper()}")
 
     optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate)
-    scaler = torch.amp.GradScaler(device_type=device.type, enabled=(device.type == 'cuda'))
+    scaler = torch.cuda.amp.GradScaler(enabled=(device.type == 'cuda'))
 
     # --- LÓGICA PARA CARGAR UN CHECKPOINT ---
     start_epoch = 0; best_val_loss = float('inf')
@@ -186,7 +189,7 @@ if __name__ == "__main__":
     
     # --- Argumentos de Arquitectura y Entrenamiento ---
     parser.add_argument('--encoder', type=str, default='classic', choices=['dinov2', 'classic'])
-    parser.add_argument('--dino_model_name', type=str, default='dinov2_vits14', help='Modelo DINOv2 a usar.')
+    parser.add_argument('--dino_model_name', type=str, default='dinov2_vitb14', help='Modelo DINOv2 a usar.')
     parser.add_argument('--loss_fn', type=str, default='hybrid', choices=['bce', 'l1', 'hybrid'], help='Función de pérdida.')
 
     # --- Argumentos para la PÉRDIDA HÍBRIDA ---
