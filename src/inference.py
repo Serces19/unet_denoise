@@ -45,7 +45,7 @@ def process_single_image(model, image_path, window_size, overlap, n_out_channels
     output_image = torch.zeros(n_out_channels, H, W, device=device)
     weight_map = torch.zeros(1, H, W, device=device)
     blending_mask = generate_blending_mask(window_size, device)
-    stride = window_size - args.overlap
+    stride = window_size - overlap # Corregido para usar el parámetro 'overlap'
     
     num_patches_h = int(np.ceil((H - window_size) / stride)) + 1 if H > window_size else 1
     num_patches_w = int(np.ceil((W - window_size) / stride)) + 1 if W > window_size else 1
@@ -85,12 +85,16 @@ def main(args):
     print(f"Usando el dispositivo: {device}")
 
     # --- 1. Cargar el Modelo (una sola vez) ---
-    print(f"Cargando modelo con encoder '{args.encoder}' (DINO Model: {args.dino_model_name if args.encoder == 'dinov2' else 'N/A'})...")
+    print(f"Cargando modelo '{args.model_size}' con encoder '{args.encoder}' (DINO: {args.dino_model_name if args.encoder == 'dinov2' else 'N/A'})...")
+    
+    # <-- MODIFICADO: Pasamos el argumento model_size al constructor
     model = CopycatUNet(
         n_out_channels=args.n_out_channels,
         encoder_name=args.encoder,
-        dino_model_name=args.dino_model_name
+        dino_model_name=args.dino_model_name,
+        model_size=args.model_size
     ).to(device)
+    
     checkpoint = torch.load(args.model_path, map_location=device, weights_only=False)
     model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()
@@ -146,8 +150,11 @@ if __name__ == '__main__':
     
     parser.add_argument('--encoder', type=str, default='classic', choices=['dinov2', 'classic'], help='Tipo de encoder con el que se entrenó el modelo.')
     parser.add_argument('--dino_model_name', type=str, default='dinov2_vits14', help='Nombre específico del modelo DINOv2 a usar (ej. dinov2_vitb14).')
-    parser.add_argument('--n_out_channels', type=int, default=3, help='Número de canales de salida del modelo (1 para máscaras, 3 para color).')
     
+    # <-- AÑADIDO: Argumento para seleccionar el tamaño del modelo clásico
+    parser.add_argument('--model_size', type=str, default='medium', choices=['small', 'medium', 'big'], help="Tamaño de la UNet clásica (ignorado si el encoder es dinov2).")
+    
+    parser.add_argument('--n_out_channels', type=int, default=3, help='Número de canales de salida del modelo (1 para máscaras, 3 para color).')
     parser.add_argument('--window_size', type=int, default=768, help='Tamaño de la ventana deslizante. Se ajustará si usa DINOv2 y no es múltiplo de 14.')
     parser.add_argument('--overlap', type=int, default=128, help='Número de píxeles de solapamiento entre ventanas.')
     parser.add_argument('--device', type=str, default='cuda', help='Dispositivo a usar para la inferencia (ej. "cuda", "cpu").')
