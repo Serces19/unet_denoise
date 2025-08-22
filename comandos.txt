@@ -106,25 +106,25 @@ python inference.py \
 
 
 python train.py \
-    --run_name "deaging_classic_l1" \
+    --run_name "deaging_classic_l1 + vgg only + 256" \
     --input_dir "../data/deaging/input" \
     --gt_dir "../data/deaging/gt" \
     --target_mode "RGB" \
     --n_out_channels 3 \
     --loss_fn "hybrid" \
-    --w_l1 1 \
-    --w_perceptual 0.0 \
-    --w_laplacian 0.1 \
+    --w_l1 0.0 \
+    --w_perceptual 0.1 \
+    --w_laplacian 0.0 \
     --w_ssim 0.0 \
     --encoder "classic" \
     --num_epochs 10000 \
     --batch_size 8 \
-    --val_split 0.25 \
-    --learning_rate 1e-3 \
-    --crop_size 518 \
+    --val_split 0.0 \
+    --learning_rate 1e-4 \
+    --crop_size 256 \
     --viz_epochs 100 \
-    --scheduler_patience 3 \
-    --scheduler_factor 0.8 \
+    --scheduler_patience 10 \
+    --scheduler_factor 0.5 \
     --advanced_augment
 
 

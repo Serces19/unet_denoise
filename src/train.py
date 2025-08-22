@@ -67,7 +67,7 @@ def train_fn(args):
 
     optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate)
     scaler = torch.cuda.amp.GradScaler(enabled=(device.type == 'cuda'))
-    scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=args.scheduler_factor, patience=args.scheduler_patience, verbose=True)
+    scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=args.scheduler_factor, patience=args.scheduler_patience)
 
     # --- LÓGICA PARA CARGAR UN CHECKPOINT ---
     start_epoch = 0; best_val_loss = float('inf')

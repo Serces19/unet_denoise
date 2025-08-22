@@ -101,12 +101,13 @@ class PairedImageDataset(Dataset):
         # --- 5. Aumentaciones sobre Tensores (aplicadas a ambos) ---
         if self.augment and self.advanced_augment:
             # Ruido
-            noise = torch.randn_like(input_tensor) * random.uniform(0.01, 0.05)
-            input_tensor = torch.clamp(input_tensor + noise, 0, 1)
-            target_tensor = torch.clamp(target_tensor + noise, 0, 1)
+            if random.random() < 0.2: # Probabilidad de 20%
+                noise = torch.randn_like(input_tensor) * random.uniform(0.01, 0.05)
+                input_tensor = torch.clamp(input_tensor + noise, 0, 1)
+                target_tensor = torch.clamp(target_tensor + noise, 0, 1)
             
             # Oclusión (Random Erasing)
-            if random.random() < 0.25: # Probabilidad de 25%
+            if random.random() < 0.2: # Probabilidad de 20%
                 # Obtenemos los parámetros una vez
                 i, j, h, w, v = self.random_erasing.get_params(input_tensor, scale=(0.02, 0.2), ratio=(0.3, 3.3))
                 # Aplicamos el mismo borrado a ambos
