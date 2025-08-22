@@ -1,4 +1,4 @@
-# DeepCopycat - Framework de Traducción Imagen-a-Imagen
+# Framework de Traducción Imagen-a-Imagen
 
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-ee4c2c.svg)
